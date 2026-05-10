@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sun shadow simulator 3D</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #f0f2f5; }
+        
+        header { 
+            padding: 0 15px; 
+            background: #2c3e50; 
+            color: white; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            z-index: 1001; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            height: 80px;
+        }
+
+        .menu-container { position: relative; display: inline-block; }
+        .menu-btn { background: transparent; color: white; border: none; padding: 15px; font-size: 14px; cursor: pointer; font-weight: bold; }
+        .menu-btn:hover { background: #34495e; }
+        .menu-content { 
+            display: none; 
+            position: absolute; 
+            background-color: #ffffff; 
+            min-width: 200px; 
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); 
+            z-index: 2000;
+            border-radius: 0 0 4px 4px;
+        }
+        .menu-content button { 
+            color: #2c3e50; 
+            padding: 12px 16px; 
+            display: block; 
+            width: 100%; 
+            border: none; 
+            background: none; 
+            text-align: left; 
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .menu-content button:hover { background-color: #f1f1f1; }
+        .menu-container:hover .menu-content { display: block; }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 3000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            color: #2c3e50;
+            position: relative;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .modal-content h2 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #f1c40f; padding-bottom: 10px; }
+        .modal-content p { line-height: 1.6; }
+        .close-modal {
+            position: absolute;
+            top: 10px; right: 15px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #95a5a6;
+        }
+        .close-modal:hover { color: #e74c3c; }
+
+        #header-solar-data {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            font-size: 11px;
+            line-height: 1.2;
+            border-left: 1px solid #5d6d7e;
+            padding-left: 20px;
+            text-align: left;
+            min-width: 150px;
+        }
+
+        #main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
+        #map { width: 35%; height: 100%; border-right: 2px solid #ccc; }
+        #renderCanvas { width: 65%; height: 100%; outline: none; background: #333; }
+        
+        .panel { position: absolute; background: rgba(255,255,255,0.95); padding: 15px; border-radius: 8px; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.15); font-size: 13px; }
+        #controls { bottom: 20px; left: 20px; width: 280px; }
+        
+        .anim-controls { display: flex; gap: 5px; margin-top: 8px; }
+        .anim-controls button { flex: 1; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s; }
+        
+        .btn-play { background: #f1c40f; color: #2c3e50; }
+        .btn-stop { background: #e74c3c; color: white; }
+        button:hover { opacity: 0.8; }
+        button:disabled { background: #bdc3c7; cursor: not-allowed; opacity: 0.5; }
+        
+        label { display: block; margin: 5px 0 3px; font-weight: bold; color: #34495e; }
+        input[type="datetime-local"], input[type="range"] { width: 100%; box-sizing: border-box; }
+        .diff-pos { color: #2ecc71; font-weight: bold; }
+        .diff-neg { color: #e74c3c; font-weight: bold; }
+        hr { border: 0; border-top: 1px solid #ddd; margin: 10px 0; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="display: flex; align-items: center; gap: 20px;">
+        <div style="display: flex; flex-direction: column;">
+            <div style="font-size: 1.3em; font-weight: bold; color: #f1c40f; line-height: 1.1;">Shadow simulator</div>
+            <a href="https://github.com/jumpjack/shadowsim" target="_blank" 
+               style="font-size: 0.75em; color: #bdc3c7; text-decoration: none; margin-top: 2px;">
+               github.com/jumpjack/shadowsim
+            </a>
+        </div>
+
+        <div class="menu-container">
+            <button class="menu-btn">File ▾</button>
+            <div class="menu-content">
+                <button onclick="document.getElementById('stl-input').click()">📁 Carica file STL...</button>
+                <button onclick="document.getElementById('json-input').click()">📂 Carica Configurazione (.json)</button>
+                <button onclick="saveTransform()">💾 Salva Configurazione (.json)</button>
+            </div>
+        </div>
+
+        <div class="menu-container">
+            <button class="menu-btn">Guida ▾</button>
+            <div class="menu-content">
+                <button onclick="openModal('modal-istruzioni')">📖 Istruzioni</button>
+                <button onclick="openModal('modal-about')">ℹ️ About</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="header-solar-data" style="min-width: 300px; font-size: 12px; border-left: 1px solid #5d6d7e; padding-left: 15px;">
+        <div>Ora solare vera: <span id="solar-time" style="font-weight:bold; color:#f1c40f;">--:--</span></div>
+        <div>Ora legale attiva: <span id="dst-active">--</span></div>
+        <div>Diff. longitudine/equaz: <span id="diff-astronomic">--</span> min</div>
+        <div style="margin-top:2px; border-top:1px solid #5d6d7e; padding-top:2px;">
+            Ora ufficiale: <span id="off-time" style="font-weight:bold;">--:--</span> 
+            <span id="formula-breakdown" style="font-size: 10px; color: #bdc3c7; margin-left:5px;"></span>
+        </div>
+    </div>
+
+    <input type="file" id="stl-input" accept=".stl" style="display:none">
+    <input type="file" id="json-input" accept=".json" style="display:none">
+</header>
+
+<div id="modal-istruzioni" class="modal-overlay" onclick="closeModal(event, 'modal-istruzioni')">
+    <div class="modal-content">
+        <span class="close-modal" onclick="document.getElementById('modal-istruzioni').style.display='none'">&times;</span>
+        <h2>Istruzioni d'uso</h2>
+        <p>1) Carica un file <b>STL</b> che rappresenta la tua abitazione e gli edifici circostanti.</p>
+        <p>2) Orienta correttamente il modello rispetto al <b>Nord</b> (linea rossa) usando le maniglie di rotazione.</p>
+        <p>3) Regola lo slider del <b>Riferimento 10 metri</b> in modo che la linea gialla corrisponda a 10 metri reali nel tuo modello.</p>
+        <hr>
+        <p>Regolando manualmente data e ora, o avviando l'animazione, vedrai come cambia e si muove l'ombra degli edifici nell'arco della giornata e dell'anno, così da poter posizionare i pannelli fotovoltaici nel posto migliore.</p>
+    </div>
+</div>
+
+<div id="modal-about" class="modal-overlay" onclick="closeModal(event, 'modal-about')">
+    <div class="modal-content">
+        <span class="close-modal" onclick="document.getElementById('modal-about').style.display='none'">&times;</span>
+        <h2>About</h2>
+        <p><b>Sun Shadow Simulator 3D</b></p>
+        <p>Simulazione astronomica delle ombre basata su coordinate geografiche reali.</p>
+        <p>Sviluppato con Babylon.js, Leaflet e SunCalc.</p>
+        <p>Codice sorgente: <a href="https://github.com/jumpjack/shadowsim" target="_blank">GitHub Repo</a></p>
+    </div>
+</div>
+
+<div id="main-container">
+    <div id="map"></div>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="controls" class="panel">
+        <label>📍 Posizione e Tempo</label>
+        <input type="datetime-local" id="datetime-picker">
+        
+        <div class="anim-controls">
+            <button id="play-btn" class="btn-play" onclick="startAnimation()">▶ Play Animazione</button>
+            <button id="stop-btn" class="btn-stop" onclick="stopAnimation()" disabled>⏹ Stop</button>
+        </div>
+
+        <p id="coords-text" style="font-style: italic; color: #7f8c8d; margin: 10px 0 5px;">Clicca sulla mappa...</p>
+        <hr>
+        <label>📏 Scala oggetto 3D: <span id="ruler-val"></span></label>
+        <input type="range" id="ruler-slider" min="0" max="10" step="0.1" value="1">
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+
+<script>
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(event, id) { if (event.target.className === 'modal-overlay') document.getElementById(id).style.display = 'none'; }
+
+    let lat = 41.9028, lng = 12.4964;
+    let animationTimer = null;
+    let animDirection = 1;
+    
+    const dtPicker = document.getElementById('datetime-picker');
+    const now = new Date();
+    document.getElementById('ruler-val').innerText = "1x";
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    dtPicker.value = now.toISOString().slice(0, 16);
+
+    const map = L.map('map').setView([lat, lng], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    let marker = L.marker([lat, lng]).addTo(map);
+    map.on('click', (e) => {
+        lat = e.latlng.lat; lng = e.latlng.lng;
+        marker.setLatLng(e.latlng);
+        document.getElementById('coords-text').innerText = `Lat: ${lat.toFixed(3)}, Lng: ${lng.toFixed(3)}`;
+        updateSolarLogic();
+    });
+
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true);
+    let sunLight, shadowGenerator, rulerContainer, gizmoManager, currentScene, loadedMesh = null;
+
+function createRuler(length, targetScene) {
+    if (!rulerContainer) {
+        rulerContainer = new BABYLON.TransformNode("rulerContainer", targetScene);
+    }
+
+    rulerContainer.getChildren().forEach(c => c.dispose());
+
+    if (length <= 0) return;
+
+    const axes = [
+        {
+            name: "X",
+            dir: new BABYLON.Vector3(1, 0, 0),
+            color: new BABYLON.Color3(1, 0, 0)
+        },
+        {
+            name: "Y",
+            dir: new BABYLON.Vector3(0, 1, 0),
+            color: new BABYLON.Color3(0, 1, 0)
+        },
+        {
+            name: "Z",
+            dir: new BABYLON.Vector3(0, 0, 1),
+            color: new BABYLON.Color3(1, 1, 0)
+        }
+    ];
+
+    axes.forEach(axis => {
+
+        const line = BABYLON.MeshBuilder.CreateLines(
+            axis.name + "_line",
+            {
+                points: [
+                    BABYLON.Vector3.Zero(),
+                    axis.dir.scale(length)
+                ]
+            },
+            targetScene
+        );
+
+        line.color = axis.color;
+        line.parent = rulerContainer;
+
+        for (let i = 0; i <= 10; i++) {
+
+            const step = (length / 10) * i;
+
+            const marker = BABYLON.MeshBuilder.CreateBox(
+                axis.name + "_step_" + i,
+                {
+                    width: 0.15,
+                    height: 0.15,
+                    depth: 0.15
+                },
+                targetScene
+            );
+
+            marker.position = axis.dir.scale(step);
+
+            const mat = new BABYLON.StandardMaterial(
+                axis.name + "_mat_" + i,
+                targetScene
+            );
+
+            mat.diffuseColor = axis.color;
+
+            marker.material = mat;
+
+            marker.parent = rulerContainer;
+        }
+    });
+}
+
+    const createScene = function () {
+        const scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color4(0.5, 0.6, 0.7, 1);
+        
+        // CORREZIONE 1: Zoom meno sensibile (aumentato wheelPrecision da 50 a 150)
+        const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, Math.PI/3, 20, BABYLON.Vector3.Zero(), scene);
+        camera.attachControl(canvas, true);
+        camera.wheelPrecision = 100; 
+
+        // CORREZIONE 2: Ombre proprie più chiare
+        // Aumentata intensità luce ambientale e aggiunto un groundColor per schiarire le pareti in ombra
+        const hemiLight = new BABYLON.HemisphericLight("ambient", new BABYLON.Vector3(0, 1, 0), scene);
+        hemiLight.intensity = 0.7;
+        hemiLight.groundColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+        
+        sunLight = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(0, -1, 0), scene);
+        sunLight.position = new BABYLON.Vector3(0, 50, 0);
+        sunLight.autoUpdateExtends = true;
+        sunLight.autoCalcShadowZBounds = true;
+
+        shadowGenerator = new BABYLON.ShadowGenerator(4096, sunLight);
+        shadowGenerator.usePercentageCloserFiltering = true;
+        shadowGenerator.filteringQuality = BABYLON.ShadowGenerator.QUALITY_HIGH;
+        shadowGenerator.darkness = 0.45; 
+        
+        shadowGenerator.bias = 0.0001;
+        shadowGenerator.normalBias = 0.01;
+
+        const ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 500, height: 500}, scene);
+        ground.receiveShadows = true;
+        const gMat = new BABYLON.StandardMaterial("gMat", scene);
+        gMat.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.2); 
+        gMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        ground.material = gMat;
+
+        const gnomon = BABYLON.MeshBuilder.CreateCylinder("gnomon", {height: 2, diameter: 0.05}, scene);
+        gnomon.position.y = 1;
+        gnomon.receiveShadows = true;
+        const gnoMat = new BABYLON.StandardMaterial("gnoMat", scene);
+        gnoMat.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2);
+        gnomon.material = gnoMat;
+        shadowGenerator.addShadowCaster(gnomon);
+
+        const nLine = BABYLON.MeshBuilder.CreateLines("nLine", {points: [new BABYLON.Vector3(0,0.01,0), new BABYLON.Vector3(0,0.01,10)]}, scene);
+        nLine.color = new BABYLON.Color3(1, 0, 0);
+
+        gizmoManager = new BABYLON.GizmoManager(scene);
+        gizmoManager.positionGizmoEnabled = true;
+        gizmoManager.rotationGizmoEnabled = true;
+        gizmoManager.gizmos.rotationGizmo.xGizmo.dispose();
+        gizmoManager.gizmos.rotationGizmo.zGizmo.dispose();
+        gizmoManager.usePointerToAttachGizmos = false;
+
+        createRuler(10, scene);
+        return scene;
+    };
+
+    currentScene = createScene();
+
+    document.getElementById('stl-input').onchange = function(evt) {
+        const file = evt.target.files[0];
+        if(!file) return;
+        const url = URL.createObjectURL(file);
+        BABYLON.SceneLoader.ImportMesh("", "", url, currentScene, function (newMeshes) {
+            if(loadedMesh) loadedMesh.dispose();
+            loadedMesh = newMeshes.length > 1 ? BABYLON.Mesh.MergeMeshes(newMeshes, true, true, undefined, false, true) : newMeshes[0];
+            
+            const wallMat = new BABYLON.StandardMaterial("wallMat", currentScene);
+            wallMat.diffuseColor = new BABYLON.Color3(0.6, 0.6, 0.6); 
+            wallMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            // Aggiunta una leggera illuminazione ambientale al materiale per prevenire neri assoluti
+            wallMat.ambientColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+            loadedMesh.material = wallMat;
+
+            loadedMesh.createNormals(true);
+            loadedMesh.refreshBoundingInfo();
+            const boundingInfo = loadedMesh.getBoundingInfo();
+            const min = boundingInfo.minimum;
+            const max = boundingInfo.maximum;
+            const size = max.subtract(min);
+            
+const camera = currentScene.activeCamera;
+
+// bounding sphere originale
+const radius = boundingInfo.boundingSphere.radius;
+
+// distanza attuale camera-origine
+const cameraDistance = camera.radius;
+
+// FOV verticale della camera
+const fov = camera.fov;
+
+// dimensione massima visibile alla distanza corrente
+const visibleHeight = 2 * Math.tan(fov / 2) * cameraDistance;
+
+// lascia un margine del 70%
+const targetSize = visibleHeight * 0.7;
+
+// scala automatica per far entrare tutto nella vista attuale
+const fitScale = targetSize / (radius * 2 || 1);
+autoFitScale = fitScale;
+
+const userScale = parseFloat(document.getElementById('ruler-slider').value);
+
+const finalScale = fitScale * userScale;
+document.getElementById('ruler-slider').value = fitScale.toFixed(2);
+document.getElementById('ruler-val').innerText = fitScale.toFixed(2) + "x";
+
+loadedMesh.scaling = new BABYLON.Vector3(fitScale, fitScale, fitScale);
+
+
+
+// centro bounding box
+const center = min.add(size.scale(0.5));
+
+// centra X e Z nell'origine
+loadedMesh.position.x = -center.x * finalScale;
+loadedMesh.position.z = -center.z * finalScale;
+
+// appoggia il modello sul piano XY (Y=0)
+loadedMesh.position.y = -min.y * finalScale;
+
+
+
+            loadedMesh.receiveShadows = true; 
+            shadowGenerator.addShadowCaster(loadedMesh);
+            sunLight.forceProjectionMatrixCompute(); 
+            gizmoManager.attachToMesh(loadedMesh);
+            URL.revokeObjectURL(url);
+        }, null, null, ".stl");
+    };
+
+    function saveTransform() {
+        const data = { objectScale: parseFloat(document.getElementById('ruler-slider').value), mesh: null };
+        if (loadedMesh) {
+            data.mesh = {
+                position: { x: loadedMesh.position.x, y: loadedMesh.position.y, z: loadedMesh.position.z },
+                rotation: loadedMesh.rotationQuaternion ? { x: loadedMesh.rotationQuaternion.x, y: loadedMesh.rotationQuaternion.y, z: loadedMesh.rotationQuaternion.z, w: loadedMesh.rotationQuaternion.w } : { x: loadedMesh.rotation.x, y: loadedMesh.rotation.y, z: loadedMesh.rotation.z },
+                scaling: { x: loadedMesh.scaling.x, y: loadedMesh.scaling.y, z: loadedMesh.scaling.z }
+            };
+        }
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: "application/json"}));
+        a.download = "solar_config.json"; a.click();
+    }
+
+    document.getElementById('json-input').onchange = function(evt) {
+        const file = evt.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const data = JSON.parse(e.target.result);
+if (data.objectScale !== undefined) {
+    document.getElementById('ruler-slider').value = data.objectScale;
+    document.getElementById('ruler-val').innerText = data.objectScale + "x";
+}
+            if (data.mesh && loadedMesh) {
+                loadedMesh.position.set(data.mesh.position.x, data.mesh.position.y, data.mesh.position.z);
+                if (data.mesh.rotation.w !== undefined) loadedMesh.rotationQuaternion = new BABYLON.Quaternion(data.mesh.rotation.x, data.mesh.rotation.y, data.mesh.rotation.z, data.mesh.rotation.w);
+                else loadedMesh.rotation.set(data.mesh.rotation.x, data.mesh.rotation.y, data.mesh.rotation.z);
+                loadedMesh.scaling.set(data.mesh.scaling.x, data.mesh.scaling.y, data.mesh.scaling.z);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    function startAnimation() {
+        if (animationTimer) return;
+        document.getElementById('play-btn').disabled = true;
+        document.getElementById('stop-btn').disabled = false;
+        animationTimer = setInterval(() => {
+            let currentDate = new Date(dtPicker.value);
+            currentDate.setMinutes(currentDate.getMinutes() + (5 * animDirection));
+            const hours = currentDate.getHours() + currentDate.getMinutes() / 60;
+            if (hours >= 21) animDirection = -1;
+            if (hours <= 5) animDirection = 1;
+            currentDate.setMinutes(currentDate.getMinutes() - currentDate.getTimezoneOffset());
+            dtPicker.value = currentDate.toISOString().slice(0, 16);
+            updateSolarLogic();
+        }, 50);
+    }
+
+    function stopAnimation() {
+        clearInterval(animationTimer);
+        animationTimer = null;
+        document.getElementById('play-btn').disabled = false;
+        document.getElementById('stop-btn').disabled = true;
+    }
+
+let autoFitScale = 1;
+
+document.getElementById('ruler-slider').oninput = function() {
+    document.getElementById('ruler-val').innerText = this.value + "x";
+
+    if (loadedMesh) {
+        const scaleMultiplier = parseFloat(this.value);
+
+        const finalScale = autoFitScale * scaleMultiplier;
+
+        loadedMesh.scaling.set(finalScale, finalScale, finalScale);
+    }
+};
+
+
+    function updateSolarLogic() {
+        const date = new Date(dtPicker.value);
+        if (isNaN(date.getTime())) return;
+        const sunPos = SunCalc.getPosition(date, lat, lng);
+        const azimuth = sunPos.azimuth + Math.PI; 
+        const altitude = sunPos.altitude;
+        sunLight.direction = new BABYLON.Vector3(-Math.sin(azimuth) * Math.cos(altitude), -Math.sin(altitude), -Math.cos(azimuth) * Math.cos(altitude));
+        sunLight.intensity = altitude > 0 ? 1.0 : 0;
+        const times = SunCalc.getTimes(date, lat, lng);
+        const solarNoon = times.solarNoon.getTime();
+        const diffMsFromNoon = date.getTime() - solarNoon;
+        const solarDate = new Date(date);
+        solarDate.setHours(12, 0, 0, 0); 
+        solarDate.setTime(solarDate.getTime() + diffMsFromNoon);
+        const stdTimezoneOffset = new Date(date.getFullYear(), 0, 1).getTimezoneOffset();
+        const isDST = date.getTimezoneOffset() < stdTimezoneOffset;
+        const dstMinutes = isDST ? 60 : 0;
+        const totalDiffMinutes = Math.round((date.getTime() - solarDate.getTime()) / 60000);
+        const astronomicDiff = totalDiffMinutes - dstMinutes;
+        const timeOptions = {hour:'2-digit', minute:'2-digit'};
+        const solarStr = solarDate.toLocaleTimeString([], timeOptions);
+        document.getElementById('solar-time').innerText = solarStr;
+        document.getElementById('dst-active').innerText = isDST ? "Sì (+1h)" : "No";
+        const diffAstrElem = document.getElementById('diff-astronomic');
+        diffAstrElem.innerText = (astronomicDiff >= 0 ? "+" : "") + astronomicDiff;
+        diffAstrElem.className = astronomicDiff >= 0 ? "diff-pos" : "diff-neg";
+        document.getElementById('off-time').innerText = date.toLocaleTimeString([], timeOptions);
+        let formula = `(${solarStr}${isDST ? " + 1h legale" : ""} ${astronomicDiff >= 0 ? "+" : "-"} ${Math.abs(astronomicDiff)} min)`;
+        document.getElementById('formula-breakdown').innerText = formula;
+    }
+
+    dtPicker.onchange = updateSolarLogic;
+    updateSolarLogic();
+    engine.runRenderLoop(() => currentScene.render());
+    window.addEventListener("resize", () => engine.resize());
+</script>
+</body>
+</html>
